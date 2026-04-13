@@ -1,19 +1,31 @@
 import streamlit as st
 import pandas as pd
-from openai import OpenAI
 
 st.set_page_config(page_title="GenAI Personal Finance Copilot", layout="wide")
 
 st.title("GenAI Personal Finance Copilot")
 st.subheader("個人化財務助手 Prototype")
 
-# 讀取資料
-@st.cache_data
-def load_data():
-    df = pd.read_csv("transactions.csv")
-    return df
+# ===== 直接內建資料，避免 CSV 問題 =====
+data = [
+    {"date": "2026-04-01", "category": "Food", "merchant": "McDonald's", "amount": 18.5},
+    {"date": "2026-04-02", "category": "Transport", "merchant": "Opal", "amount": 6.2},
+    {"date": "2026-04-03", "category": "Shopping", "merchant": "Uniqlo", "amount": 89.0},
+    {"date": "2026-04-04", "category": "Food", "merchant": "Woolworths", "amount": 45.7},
+    {"date": "2026-04-05", "category": "Entertainment", "merchant": "Netflix", "amount": 17.99},
+    {"date": "2026-04-06", "category": "Food", "merchant": "Starbucks", "amount": 8.5},
+    {"date": "2026-04-07", "category": "Transport", "merchant": "Uber", "amount": 22.4},
+    {"date": "2026-04-08", "category": "Shopping", "merchant": "Kmart", "amount": 35.6},
+    {"date": "2026-04-09", "category": "Bills", "merchant": "Electricity", "amount": 75.0},
+    {"date": "2026-04-10", "category": "Food", "merchant": "Coles", "amount": 52.3},
+    {"date": "2026-04-11", "category": "Entertainment", "merchant": "Spotify", "amount": 11.99},
+    {"date": "2026-04-12", "category": "Shopping", "merchant": "Amazon", "amount": 120.0},
+    {"date": "2026-04-13", "category": "Transport", "merchant": "Opal", "amount": 5.8},
+    {"date": "2026-04-14", "category": "Food", "merchant": "Subway", "amount": 12.5},
+    {"date": "2026-04-15", "category": "Bills", "merchant": "Internet", "amount": 65.0},
+]
 
-df = load_data()
+df = pd.DataFrame(data)
 
 # ===== 摘要區 =====
 st.markdown("## 消費摘要")
@@ -21,115 +33,102 @@ st.markdown("## 消費摘要")
 total_spending = df["amount"].sum()
 avg_spending = df["amount"].mean()
 
-category_summary = df.groupby("category")["amount"].sum().sort_values(ascending=False)
-top_category = category_summary.idxmax()
+category_summary = (
+    df.groupby("category", as_index=False)["amount"]
+    .sum()
+    .sort_values(by="amount", ascending=False)
+)
+
+top_category = category_summary.iloc[0]["category"]
+top_amount = category_summary.iloc[0]["amount"]
 
 col1, col2, col3 = st.columns(3)
 col1.metric("本月總支出", f"${total_spending:.2f}")
-col2.metric("平均支出", f"${avg_spending:.2f}")
-col3.metric("最大支出類別", top_category)
+col2.metric("平均單筆支出", f"${avg_spending:.2f}")
+col3.metric("最大支出類別", f"{top_category} (${top_amount:.2f})")
 
-# ===== 表格與圖表 =====
+# ===== 類別分析 =====
 st.markdown("## 類別支出分析")
 
-st.dataframe(category_summary)
-st.bar_chart(category_summary)
+left, right = st.columns(2)
 
-# ===== AI 問答 =====
-st.markdown("## AI 財務問答")
+with left:
+    st.dataframe(category_summary, use_container_width=True)
 
-api_key = st.text_input("請輸入 OpenAI API Key（可留空，使用 Demo 模式）", type="password")
-user_question = st.text_input("請輸入你的問題")
+with right:
+    chart_df = category_summary.set_index("category")
+    st.bar_chart(chart_df)
+
+# ===== 原始資料 =====
+with st.expander("查看原始交易資料"):
+    st.dataframe(df, use_container_width=True)
+
+# ===== Demo 問答 =====
+st.markdown("## AI 財務問答（Demo 模式）")
+
+preset = st.selectbox(
+    "請選擇問題",
+    [
+        "",
+        "我這個月花最多在哪？",
+        "我可以怎麼減少支出？",
+        "我的消費習慣有什麼需要注意的地方？",
+    ],
+)
+
+custom_q = st.text_input("或自行輸入問題")
+user_question = custom_q if custom_q else preset
 
 if st.button("產生 AI 回答"):
     if not user_question:
-        st.warning("請先輸入問題")
+        st.warning("請先輸入或選擇問題")
     else:
-        try:
-            if api_key:
-                client = OpenAI(api_key=api_key)
-
-                prompt = f"""
-你是一位專業的銀行個人財務助手，請根據以下使用者消費資料回答問題。
-
-【使用者消費資料】
-{df.to_string()}
-
-【使用者問題】
-{user_question}
-
-請用繁體中文回答，並遵守以下格式：
-1. 消費概況（2-3句）
-2. 重點觀察（條列 2-3 點）
-3. 建議（條列 2-3 點）
-
-請保持專業、清楚、簡潔，不要提供高風險投資建議。
-"""
-
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3
-                )
-
-                st.markdown("### AI 回答")
-                st.write(response.choices[0].message.content)
-
-            else:
-                raise Exception("No API key provided")
-
-        except Exception:
-            top_amount = category_summary.iloc[0]
-
-            # 根據問題簡單分類
-            if "最多" in user_question or "哪裡" in user_question:
-                advice = f"""
+        if "最多" in user_question or "哪裡" in user_question:
+            answer = f"""
 ### AI 回答（Demo 模式）
 
 **消費概況**  
-你本月總支出為 **${total_spending:.2f}**，其中支出最高的類別是 **{top_category}**，金額為 **${top_amount:.2f}**。
+你本月總支出為 **${total_spending:.2f}**，目前支出最高的類別是 **{top_category}**，金額為 **${top_amount:.2f}**。
 
 **重點觀察**  
 - 你的主要支出集中在 **{top_category}** 類別。  
-- 此類別支出佔比相對較高，建議優先關注。  
+- 此類別目前是最值得優先關注的支出來源。  
 
 **建議**  
-- 檢視 {top_category} 類別中的消費是否有可減少的項目。  
-- 若為日常支出，可考慮設定預算限制。
+- 先檢視 **{top_category}** 中是否有可調整或可替代的花費。  
+- 若屬於日常消費，建議設定每月預算上限。
 """
-
-            elif "減少" in user_question or "省" in user_question:
-                advice = f"""
+        elif "減少" in user_question or "省" in user_question:
+            answer = f"""
 ### AI 回答（Demo 模式）
 
 **消費概況**  
 你本月總支出為 **${total_spending:.2f}**，其中 **{top_category}** 是最大支出來源。
 
 **重點觀察**  
-- {top_category} 類別支出較高，是主要節省空間。  
-- 部分支出可能屬於可調整項目。  
+- **{top_category}** 類別支出較高，是最有節省空間的部分。  
+- 如果沒有預算控制，這類支出容易持續累積。  
 
 **建議**  
-- 優先降低 {top_category} 類別的支出比例。  
+- 優先降低 **{top_category}** 類別的支出比例。  
 - 建議設定每週或每月預算上限。  
-- 可透過記帳或提醒機制控制消費頻率。
+- 可以透過記帳或消費提醒，降低非必要支出頻率。
 """
-
-            else:
-                advice = f"""
+        else:
+            answer = f"""
 ### AI 回答（Demo 模式）
 
 **消費概況**  
-你的總支出為 **${total_spending:.2f}**，主要集中在 **{top_category}**。
+你的本月總支出為 **${total_spending:.2f}**，支出主要集中在 **{top_category}** 類別。
 
 **重點觀察**  
-- 支出集中度較高。  
-- 部分類別可能存在優化空間。  
+- 目前支出集中度偏高。  
+- 若缺乏預算管理，可能影響儲蓄空間。  
 
 **建議**  
-- 建立預算規劃  
-- 定期檢視消費習慣  
+- 建立每月預算規劃。  
+- 定期檢視消費類別分布。  
+- 優先追蹤高支出項目的變化。
 """
-
-            st.markdown(advice)
-            st.info("目前為 Demo 模式，正式版本可串接 LLM 提供更精準回答。")
+        st.markdown(answer)
+        st.info("此版本為 Demo 模式，用於展示 GenAI 財務助手的互動流程與商業概念。")
